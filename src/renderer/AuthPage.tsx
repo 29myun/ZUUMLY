@@ -84,7 +84,7 @@ export default function AuthPage({
           <button className="ghost small" onClick={onBack}>
             ← Back
           </button>
-          <h1 className="logo">Screen Assist</h1>
+          <h1 className="logo">ZUUMLY</h1>
         </div>
         <div className="topbar-right">
           <button
@@ -104,8 +104,8 @@ export default function AuthPage({
           </h2>
           <p className="auth-subtitle">
             {mode === "login"
-              ? "Sign in to continue to Screen Assist"
-              : "Sign up to get started with Screen Assist"}
+              ? "Sign in to continue to ZUUMLY"
+              : "Sign up to get started with ZUUMLY"}
           </p>
 
           <form className="auth-form" onSubmit={handleSubmit}>

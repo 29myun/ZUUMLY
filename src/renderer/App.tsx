@@ -804,7 +804,7 @@ export default function App() {
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
-          <h1 className="logo">ZUUM</h1>
+          <h1 className="logo">ZUUMLY</h1>
           <span className="badge">BCIT Hackathon 2026</span>
         </div>
         <div className="topbar-right">

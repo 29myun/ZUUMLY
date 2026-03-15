@@ -8,3 +8,5 @@ dist-electron
 .env
 .env.*
 projectCheckList.txt
+# Local Netlify folder
+.netlify
