@@ -1,5 +1,6 @@
 import Groq from "groq-sdk";
 
+// Handles /api/chat for both streaming and non-streaming chat completions.
 export default async (req: Request) => {
   if (req.method !== "POST") {
     return new Response("Method not allowed", { status: 405 });
@@ -41,6 +42,7 @@ export default async (req: Request) => {
         for await (const chunk of completion) {
           const delta = chunk.choices[0]?.delta?.content;
           if (delta) {
+            // Emit one SSE event per token chunk so the renderer can stream updates.
             controller.enqueue(
               encoder.encode(`data: ${JSON.stringify({ content: delta })}\n\n`),
             );

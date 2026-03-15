@@ -1,6 +1,6 @@
 export {};
 
-// Augment the global Window type with the API exposed by preload.js
+// Type the preload bridge injected by Electron at runtime.
 declare global {
   interface Window {
     screenAssist: {

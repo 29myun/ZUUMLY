@@ -1,7 +1,6 @@
 const { contextBridge, ipcRenderer } = require("electron");
 
-// Expose a safe API on window.screenAssist for the renderer process.
-// Each method maps to an ipcMain.handle() registered in main.js.
+// Expose a minimal IPC surface to renderer code via window.screenAssist.
 contextBridge.exposeInMainWorld("screenAssist", {
   listSources: () => ipcRenderer.invoke("list-sources"),
   minimizeWindow: () => ipcRenderer.invoke("minimize-window"),

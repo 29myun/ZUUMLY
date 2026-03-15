@@ -12,7 +12,7 @@ import {
   serverTimestamp,
   type Unsubscribe,
 } from "firebase/firestore";
-import { db } from "./firebase";
+import { db } from "./firebaseConfig";
 import Groq from "groq-sdk";
 
 const apiKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
@@ -35,7 +35,7 @@ export type Chat = {
 
 const chatsRef = collection(db, "chats");
 
-/** Subscribe to all chats for a user, ordered newest-first. */
+/** Subscribe to a user's chats and receive updates in real time. */
 export function subscribeToChats(
   uid: string,
   callback: (chats: Chat[]) => void,
@@ -117,6 +117,7 @@ export async function saveMessages(
   const firstUser = messages.find((m) => m.role === "user");
   const firstAssistant = messages.find((m) => m.role === "assistant" && m.text.trim());
 
+  // Only replace titles that still have the placeholder label.
   const needsTitle = !currentTitle || currentTitle === "New Chat";
 
   const update: Record<string, unknown> = { messages };

@@ -1,19 +1,21 @@
 const {
   app,
   BrowserWindow,
-  ipcMain,
   desktopCapturer,
-  session,
   globalShortcut,
+  ipcMain,
+  session,
 } = require("electron");
-const path = require("path");
 const fs = require("fs");
+const path = require("path");
 
-const snapshotDir = path.join(app.getPath("temp"), "screen-assist-snapshots");
 const isDev = !app.isPackaged;
+const DEV_SERVER_URL = process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5173";
+// Snapshots are stored in the OS temp directory and cleaned up from renderer actions.
+const SNAPSHOT_DIR = path.join(app.getPath("temp"), "screen-assist-snapshots");
 
 function createMainWindow() {
-  const win = new BrowserWindow({
+  const mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 900,
@@ -27,87 +29,135 @@ function createMainWindow() {
     },
   });
 
-  win.setContentProtection(true);
-
-  const devServerUrl =
-    process.env.VITE_DEV_SERVER_URL || "http://127.0.0.1:5173";
+  mainWindow.setContentProtection(true);
 
   if (isDev) {
-    win.loadURL(devServerUrl);
-    win.webContents.openDevTools({ mode: "detach" });
-  } else {
-    win.loadFile(path.join(__dirname, "../dist/index.html"));
+    mainWindow.loadURL(DEV_SERVER_URL);
+    mainWindow.webContents.openDevTools({ mode: "detach" });
+    return;
+  }
+
+  mainWindow.loadFile(path.join(__dirname, "../dist/index.html"));
+}
+
+function getMainWindow() {
+  return BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0] || null;
+}
+
+function hideWindowForCapture() {
+  const mainWindow = getMainWindow();
+  if (!mainWindow) return;
+
+  // Hide without focus handoff during capture selection.
+  mainWindow.setOpacity(0);
+  mainWindow.setIgnoreMouseEvents(true, { forward: true });
+}
+
+function restoreWindowAfterCapture() {
+  const mainWindow = BrowserWindow.getAllWindows()[0];
+  if (!mainWindow) return;
+
+  mainWindow.setIgnoreMouseEvents(false);
+  mainWindow.setOpacity(1);
+  mainWindow.focus();
+}
+
+function ensureSnapshotDirectory() {
+  if (!fs.existsSync(SNAPSHOT_DIR)) {
+    fs.mkdirSync(SNAPSHOT_DIR, { recursive: true });
   }
 }
 
-app.whenReady().then(() => {
+function resolveSnapshotPath(filePath) {
+  if (!filePath) return null;
+
+  const resolvedPath = path.resolve(filePath);
+  const relativePath = path.relative(SNAPSHOT_DIR, resolvedPath);
+  // Prevent path traversal by allowing reads/deletes only inside SNAPSHOT_DIR.
+  const insideSnapshotDir =
+    relativePath !== "" &&
+    !relativePath.startsWith("..") &&
+    !path.isAbsolute(relativePath);
+
+  return insideSnapshotDir ? resolvedPath : null;
+}
+
+function saveSnapshotFromDataUrl(dataUrl) {
+  ensureSnapshotDirectory();
+
+  const filePath = path.join(SNAPSHOT_DIR, `snapshot-${Date.now()}.png`);
+  const base64Data = dataUrl.replace(/^data:image\/png;base64,/, "");
+  fs.writeFileSync(filePath, base64Data, "base64");
+
+  return filePath;
+}
+
+function readSnapshotAsDataUrl(filePath) {
+  const safePath = resolveSnapshotPath(filePath);
+  if (!safePath || !fs.existsSync(safePath)) return null;
+
+  const buffer = fs.readFileSync(safePath);
+  return `data:image/png;base64,${buffer.toString("base64")}`;
+}
+
+function deleteSnapshotFile(filePath) {
+  const safePath = resolveSnapshotPath(filePath);
+  if (!safePath) return;
+  if (fs.existsSync(safePath)) fs.unlinkSync(safePath);
+}
+
+function registerIpcHandlers() {
   ipcMain.handle("list-sources", async () => {
     const sources = await desktopCapturer.getSources({
       types: ["screen", "window"],
       thumbnailSize: { width: 320, height: 200 },
       fetchWindowIcons: true,
     });
-    return sources.map((s) => ({
-      id: s.id,
-      name: s.name,
-      thumbnail: s.thumbnail.toDataURL(),
+
+    return sources.map((source) => ({
+      id: source.id,
+      name: source.name,
+      thumbnail: source.thumbnail.toDataURL(),
     }));
   });
 
-  // Hide the main window during capture without transferring OS focus to another window.
-  // win.minimize() hands focus to the next window in Z-order (usually the captured source),
-  // so instead we make it invisible and pass mouse events through while keeping it foreground.
   ipcMain.handle("minimize-window", () => {
-    const win =
-      BrowserWindow.getFocusedWindow() || BrowserWindow.getAllWindows()[0];
-    if (win) {
-      win.setOpacity(0);
-      win.setIgnoreMouseEvents(true, { forward: true });
-    }
+    hideWindowForCapture();
   });
 
   ipcMain.handle("restore-window", () => {
-    const win = BrowserWindow.getAllWindows()[0];
-    if (win) {
-      win.setIgnoreMouseEvents(false);
-      win.setOpacity(1);
-      win.focus();
-    }
+    restoreWindowAfterCapture();
   });
 
-  // Auto-resolve getDisplayMedia() requests with the primary screen
-  // so the renderer's system-picker flow works without a native dialog
+  ipcMain.handle("save-snapshot", (_event, dataUrl) => {
+    return saveSnapshotFromDataUrl(dataUrl);
+  });
+
+  ipcMain.handle("read-snapshot", (_event, filePath) => {
+    return readSnapshotAsDataUrl(filePath);
+  });
+
+  ipcMain.handle("delete-snapshot", (_event, filePath) => {
+    deleteSnapshotFile(filePath);
+  });
+}
+
+function registerDisplayMediaHandler() {
+  // Auto-select the first screen so renderer getDisplayMedia works without a native picker.
   session.defaultSession.setDisplayMediaRequestHandler(
     async (_request, callback) => {
       const sources = await desktopCapturer.getSources({ types: ["screen"] });
       callback({ video: sources[0] || null });
     },
   );
+}
 
-  // Snapshot file management — save/read/delete PNG files in a temp folder
-  ipcMain.handle("save-snapshot", (_event, dataUrl) => {
-    if (!fs.existsSync(snapshotDir)) fs.mkdirSync(snapshotDir, { recursive: true });
-    const filePath = path.join(snapshotDir, `snapshot-${Date.now()}.png`);
-    const base64 = dataUrl.replace(/^data:image\/png;base64,/, "");
-    fs.writeFileSync(filePath, base64, "base64");
-    return filePath;
-  });
+async function bootstrap() {
+  await app.whenReady();
 
-  ipcMain.handle("read-snapshot", (_event, filePath) => {
-    if (!filePath || !fs.existsSync(filePath)) return null;
-    const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(snapshotDir)) return null;
-    const buf = fs.readFileSync(resolved);
-    return `data:image/png;base64,${buf.toString("base64")}`;
-  });
-
-  ipcMain.handle("delete-snapshot", (_event, filePath) => {
-    if (!filePath) return;
-    const resolved = path.resolve(filePath);
-    if (!resolved.startsWith(snapshotDir)) return;
-    if (fs.existsSync(resolved)) fs.unlinkSync(resolved);
-  });
-
+  // Register process-level handlers before opening the window.
+  registerIpcHandlers();
+  registerDisplayMediaHandler();
   createMainWindow();
 
   app.on("activate", () => {
@@ -115,7 +165,9 @@ app.whenReady().then(() => {
       createMainWindow();
     }
   });
-});
+}
+
+void bootstrap();
 
 app.on("will-quit", () => {
   globalShortcut.unregisterAll();

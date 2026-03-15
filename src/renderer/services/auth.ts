@@ -8,7 +8,7 @@ import {
   type User,
 } from "firebase/auth";
 import { doc, setDoc, deleteDoc, serverTimestamp } from "firebase/firestore";
-import { auth, db } from "./firebase";
+import { auth, db } from "./firebaseConfig";
 
 export type AppUser = {
   uid: string;
@@ -22,6 +22,7 @@ export async function signup(name: string, email: string, password: string): Pro
 
   await updateProfile(user, { displayName: name });
 
+  // Store app-specific profile metadata separately from Firebase Auth user fields.
   await setDoc(doc(db, "users", user.uid), {
     uid: user.uid,
     email: user.email,
@@ -56,8 +57,8 @@ export function onAuthChange(callback: (user: AppUser | null) => void): () => vo
   });
 }
 
-/** Delete the current user's Firestore doc and Firebase Auth account. */
 export async function deleteAccount(uid: string): Promise<void> {
+  // Keep Firestore and Auth in sync by removing both records.
   await deleteDoc(doc(db, "users", uid));
   const currentUser = auth.currentUser;
   if (currentUser) {

@@ -1,8 +1,8 @@
 import { initializeApp } from "firebase/app";
 import { getAuth } from "firebase/auth";
 import { getFirestore } from "firebase/firestore";
-import { getAnalytics, isSupported, type Analytics } from "firebase/analytics";
 
+// Public Firebase project identifiers used by the client SDK.
 const firebaseConfig = {
   apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
   authDomain: import.meta.env.VITE_AUTH_DOMAIN,
@@ -14,9 +14,7 @@ const firebaseConfig = {
 };
 
 const app = initializeApp(firebaseConfig);
+
 export const auth = getAuth(app);
 export const db = getFirestore(app);
-export const analytics: Promise<Analytics | null> = isSupported().then(
-  (yes) => (yes ? getAnalytics(app) : null),
-);
 export default app;

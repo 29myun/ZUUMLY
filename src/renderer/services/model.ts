@@ -1,40 +1,78 @@
 import Groq from "groq-sdk";
-import type { ChatCompletionContentPart } from "groq-sdk/resources/chat/completions";
+import type {
+  ChatCompletionContentPart,
+  ChatCompletionMessageParam,
+} from "groq-sdk/resources/chat/completions";
 
-const apiKey = (import.meta as any).env.VITE_GROQ_API_KEY as string | undefined;
+type HistoryMessage = {
+  role: "user" | "assistant";
+  text: string;
+};
 
-const groq = apiKey
+const API_KEY = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
+
+const CHAT_MODEL = "meta-llama/llama-4-scout-17b-16e-instruct";
+const TRANSCRIBE_MODEL = "whisper-large-v3";
+const TTS_MODEL = "playai-tts";
+const TTS_VOICE = "Fritz-PlayAI";
+
+const CHAT_API_PATH = "/api/chat";
+const TRANSCRIBE_API_PATH = "/api/transcribe";
+const TTS_API_PATH = "/api/tts";
+
+const ATTACHED_SNAPSHOT_SINGLE_LABEL =
+  "[ATTACHED SNAPSHOT: A screenshot the user captured. If the user's message is asking about this snapshot, what they captured, or what is in the screenshot, analyze it fully and answer in detail.]";
+
+const LIVE_PREVIEW_LABEL =
+  "[LIVE PREVIEW: A real-time capture of the user's current screen. If the user's message is asking about the live preview, what is on their screen, or what you can see, analyze this image fully and describe it in detail.]";
+
+// Desktop can call Groq directly. Web deploys can fall back to /api Netlify functions.
+const groq = API_KEY
   ? new Groq({
-      apiKey,
+      apiKey: API_KEY,
       dangerouslyAllowBrowser: true,
     })
   : null;
 
+/** Receive response tokens incrementally instead of waiting for a full response. */
 export async function streamGroqChatCompletion(
   userMessage: string,
   onToken: (token: string) => void,
   liveFrameUrl: string | null = null,
   snapshotUrls: string[] = [],
-  history: { role: "user" | "assistant"; text: string }[] = [],
-) {
-  const messages: any[] = [];
+  history: HistoryMessage[] = [],
+): Promise<string> {
+  const messages: ChatCompletionMessageParam[] = [
+    ...buildHistoryMessages(history),
+    {
+      role: "user",
+      content: buildUserContent(userMessage, liveFrameUrl, snapshotUrls),
+    },
+  ];
 
-  // Include prior conversation history (text only)
-  for (const msg of history) {
-    messages.push({
-      role: msg.role,
-      content: msg.text,
-    });
+  if (groq) {
+    return streamFromGroq(messages, onToken);
   }
 
-  // Build the current user message with optional images
+  return streamFromServerless(messages, onToken);
+}
+
+function buildHistoryMessages(history: HistoryMessage[]): ChatCompletionMessageParam[] {
+  return history.map((msg) => ({
+    role: msg.role,
+    content: msg.text,
+  }));
+}
+
+function buildUserContent(
+  userMessage: string,
+  liveFrameUrl: string | null,
+  snapshotUrls: string[],
+): ChatCompletionContentPart[] {
   const content: ChatCompletionContentPart[] = [];
 
-  [...snapshotUrls].forEach((url, i) => {
-    const label = snapshotUrls.length === 1
-      ? "[ATTACHED SNAPSHOT: A screenshot the user captured. If the user's message is asking about this snapshot, what they captured, or what is in the screenshot, analyze it fully and answer in detail.]"
-      : `[ATTACHED SNAPSHOT ${i + 1} of ${snapshotUrls.length}: If the user's message is asking about the snapshot(s), what they captured, or what is in the screenshot(s), analyze all of them fully and answer in detail.]`;
-    content.push({ type: "text", text: label });
+  snapshotUrls.forEach((url, index) => {
+    content.push({ type: "text", text: buildSnapshotLabel(index, snapshotUrls.length) });
     content.push({
       type: "image_url",
       image_url: { url },
@@ -42,7 +80,7 @@ export async function streamGroqChatCompletion(
   });
 
   if (liveFrameUrl) {
-    content.push({ type: "text", text: "[LIVE PREVIEW: A real-time capture of the user's current screen. If the user's message is asking about the live preview, what is on their screen, or what you can see, analyze this image fully and describe it in detail.]" });
+    content.push({ type: "text", text: LIVE_PREVIEW_LABEL });
     content.push({
       type: "image_url",
       image_url: { url: liveFrameUrl },
@@ -50,73 +88,122 @@ export async function streamGroqChatCompletion(
   }
 
   content.push({ type: "text", text: userMessage });
-  messages.push({ role: "user", content });
+  return content;
+}
 
-  if (groq) {
-    // Electron — call Groq SDK directly
-    const stream = await groq.chat.completions.create({
-      messages,
-      model: "meta-llama/llama-4-scout-17b-16e-instruct",
-      stream: true,
-    });
-
-    let full = "";
-    for await (const chunk of stream) {
-      const delta = chunk.choices[0]?.delta?.content;
-      if (delta) {
-        full += delta;
-        onToken(full);
-      }
-    }
-    return full;
+function buildSnapshotLabel(index: number, total: number): string {
+  if (total === 1) {
+    return ATTACHED_SNAPSHOT_SINGLE_LABEL;
   }
 
-  // Web — stream via serverless function
-  const res = await fetch("/api/chat", {
+  return (
+    "[ATTACHED SNAPSHOT " +
+    String(index + 1) +
+    " of " +
+    String(total) +
+    ": If the user's message is asking about the snapshot(s), what they captured, or what is in the screenshot(s), analyze all of them fully and answer in detail.]"
+  );
+}
+
+async function streamFromGroq(
+  messages: ChatCompletionMessageParam[],
+  onToken: (token: string) => void,
+): Promise<string> {
+  const stream = await groq!.chat.completions.create({
+    messages,
+    model: CHAT_MODEL,
+    stream: true,
+  });
+
+  let fullText = "";
+  for await (const chunk of stream) {
+    const delta = chunk.choices[0]?.delta?.content;
+    if (delta) {
+      fullText += delta;
+      onToken(fullText);
+    }
+  }
+
+  return fullText;
+}
+
+async function streamFromServerless(
+  messages: ChatCompletionMessageParam[],
+  onToken: (token: string) => void,
+): Promise<string> {
+  const response = await fetch(CHAT_API_PATH, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({
       messages,
-      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+      model: CHAT_MODEL,
       stream: true,
     }),
   });
-  if (!res.ok) throw new Error(`Chat request failed: ${res.status}`);
 
-  const reader = res.body!.getReader();
+  if (!response.ok) {
+    throw new Error("Chat request failed: " + String(response.status));
+  }
+
+  if (!response.body) {
+    throw new Error("Chat response body is empty.");
+  }
+
+  return readSseStream(response.body.getReader(), onToken);
+}
+
+async function readSseStream(
+  reader: ReadableStreamDefaultReader<Uint8Array>,
+  onToken: (token: string) => void,
+): Promise<string> {
+  // Parse Server-Sent Events emitted by netlify/functions/chat.mts.
   const decoder = new TextDecoder();
-  let full = "";
+  let fullText = "";
   let buffer = "";
+
   while (true) {
     const { done, value } = await reader.read();
-    if (done) break;
+    if (done) {
+      break;
+    }
+
     buffer += decoder.decode(value, { stream: true });
+
     const lines = buffer.split("\n");
-    buffer = lines.pop()!;
+    buffer = lines.pop() ?? "";
+
     for (const line of lines) {
-      if (line.startsWith("data: ") && line !== "data: [DONE]") {
-        try {
-          const data = JSON.parse(line.slice(6));
-          if (data.content) {
-            full += data.content;
-            onToken(full);
-          }
-        } catch {}
+      const chunk = extractSseContent(line);
+      if (chunk) {
+        fullText += chunk;
+        onToken(fullText);
       }
     }
   }
-  return full;
+
+  return fullText;
 }
 
-/**
- * Transcribe audio using Groq Whisper.
- */
+function extractSseContent(line: string): string | null {
+  if (!line.startsWith("data: ") || line === "data: [DONE]") {
+    return null;
+  }
+
+  try {
+    const payload = JSON.parse(line.slice(6));
+    return typeof payload.content === "string" ? payload.content : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Transcribe audio using Groq Whisper. (Speech -> Text)*/
 export async function transcribeAudio(audioBlob: Blob): Promise<string> {
   if (groq) {
     const file = new File([audioBlob], "recording.webm", { type: audioBlob.type });
     const transcription = await groq.audio.transcriptions.create({
       file,
-      model: "whisper-large-v3",
+      model: TRANSCRIBE_MODEL,
       language: "en",
     });
     return transcription.text;
@@ -124,33 +211,45 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
 
   const formData = new FormData();
   formData.append("file", audioBlob, "recording.webm");
-  const res = await fetch("/api/transcribe", { method: "POST", body: formData });
-  if (!res.ok) throw new Error(`Transcribe request failed: ${res.status}`);
-  const data = await res.json();
+
+  const response = await fetch(TRANSCRIBE_API_PATH, {
+    method: "POST",
+    body: formData,
+  });
+
+  if (!response.ok) {
+    throw new Error("Transcribe request failed: " + String(response.status));
+  }
+
+  const data = await response.json();
   return data.text;
 }
 
-/**
- * Generate speech from text using Groq TTS. Returns a playable audio Blob.
- */
+/** Generate speech from text using Groq TTS. Returns a playable audio blob. (Text -> Speech)*/
 export async function textToSpeech(text: string): Promise<Blob> {
-  if (!text.trim()) throw new Error("Empty text for TTS");
+  if (!text.trim()) {
+    throw new Error("Empty text for TTS");
+  }
 
   if (groq) {
     const response = await groq.audio.speech.create({
-      model: "playai-tts",
+      model: TTS_MODEL,
       input: text,
-      voice: "Fritz-PlayAI",
+      voice: TTS_VOICE,
       response_format: "mp3",
     });
     return await response.blob();
   }
 
-  const res = await fetch("/api/tts", {
+  const response = await fetch(TTS_API_PATH, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ text, voice: "Fritz-PlayAI" }),
+    body: JSON.stringify({ text, voice: TTS_VOICE }),
   });
-  if (!res.ok) throw new Error(`TTS request failed: ${res.status}`);
-  return await res.blob();
+
+  if (!response.ok) {
+    throw new Error("TTS request failed: " + String(response.status));
+  }
+
+  return await response.blob();
 }
