@@ -574,11 +574,13 @@ export default function App() {
           };
           speechSynthesis.speak(utterance);
         });
-      } catch {
+      } catch (error) {
+        console.error("Voice call error:", error);
         if (callLinkedToChat) {
+          const msg = error instanceof Error ? error.message : String(error);
           setChatLog((prev) => [
             ...prev,
-            { role: "assistant", text: "Error: Voice call failed." },
+            { role: "assistant", text: `Error: ${msg}` },
           ]);
         }
         setCallStatus("idle");
@@ -634,11 +636,13 @@ export default function App() {
         chatLog,
       );
     } catch (error) {
+      console.error("Groq chat error:", error);
+      const msg = error instanceof Error ? error.message : String(error);
       setChatLog((prev) => {
         const updated = [...prev];
         updated[assistantIdx] = {
           role: "assistant",
-          text: "Error: Failed to get a response from the model.",
+          text: `Error: ${msg}`,
         };
         return updated;
       });

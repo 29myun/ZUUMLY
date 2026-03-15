@@ -1,12 +1,11 @@
 import Groq from "groq-sdk";
 import type { ChatCompletionContentPart } from "groq-sdk/resources/chat/completions";
 
-const isElectron =
-  typeof window !== "undefined" && !!(window as any).screenAssist;
+const apiKey = (import.meta as any).env.VITE_GROQ_API_KEY as string | undefined;
 
-const groq = isElectron
+const groq = apiKey
   ? new Groq({
-      apiKey: (import.meta as any).env.VITE_GROQ_API_KEY,
+      apiKey,
       dangerouslyAllowBrowser: true,
     })
   : null;

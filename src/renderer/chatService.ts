@@ -15,12 +15,11 @@ import {
 import { db } from "./firebase";
 import Groq from "groq-sdk";
 
-const isElectron =
-  typeof window !== "undefined" && !!(window as any).screenAssist;
+const apiKey = import.meta.env.VITE_GROQ_API_KEY as string | undefined;
 
-const groq = isElectron
+const groq = apiKey
   ? new Groq({
-      apiKey: import.meta.env.VITE_GROQ_API_KEY,
+      apiKey,
       dangerouslyAllowBrowser: true,
     })
   : null;
