@@ -1,11 +1,11 @@
 import React, { useCallback, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { streamGroqChatCompletion, transcribeAudio } from "./model";
-import LandingPage from "./LandingPage";
-import AuthPage from "./AuthPage";
-import SettingsPage from "./SettingsPage";
-import { login, signup, logout, onAuthChange, type AppUser } from "./auth";
+import { streamGroqChatCompletion, transcribeAudio } from "./services/model";
+import LandingPage from "./pages/LandingPage";
+import AuthPage from "./pages/AuthPage";
+import SettingsPage from "./pages/SettingsPage";
+import { login, signup, logout, onAuthChange, type AppUser } from "./services/auth";
 import {
   subscribeToChats,
   createChat,
@@ -13,7 +13,7 @@ import {
   deleteChat,
   type Chat,
   type ChatMessage,
-} from "./chatService";
+} from "./services/chatService";
 
 type Selection = { x: number; y: number; width: number; height: number };
 

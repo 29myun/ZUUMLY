@@ -7,6 +7,6 @@ dist-electron
 *.log
 .env
 .env.*
-projectCheckList.txt
+!.env.example
 # Local Netlify folder
 .netlify

@@ -1,6 +1,6 @@
 import React, { useState } from "react";
-import { deleteAccount, type AppUser } from "./auth";
-import { deleteAllChats } from "./chatService";
+import { deleteAccount, type AppUser } from "../services/auth";
+import { deleteAllChats } from "../services/chatService";
 
 interface SettingsPageProps {
   user: AppUser;

@@ -42,11 +42,11 @@ export default function LandingPage({ onGetStarted, onLogin, onSignup, dark, onT
       <section className="landing-features">
         <div className="feature-card">
           <h3>Live Screen Capture</h3>
-          <p>Share any window or your entire screen with a single click. Select specific regions for focused analysis.</p>
+          <p>Share any window or your entire screen. Select specific regions for focused analysis.</p>
         </div>
         <div className="feature-card">
           <h3>AI Chat Assistant</h3>
-          <p>Ask questions about what's on your screen and get context-aware responses powered by advanced AI.</p>
+          <p>Ask questions about what's on your screen and get context-aware responses.</p>
         </div>
         <div className="feature-card">
           <h3>Smart Snapshots</h3>
