@@ -647,6 +647,10 @@ textarea:focus {
   overflow: hidden;
 }
 
+.chat-panel-short {
+  max-height: 60vh;
+}
+
 .chat-log {
   flex: 1;
   overflow-y: auto;

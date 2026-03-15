@@ -21,10 +21,10 @@ const TRANSCRIBE_API_PATH = "/api/transcribe";
 const TTS_API_PATH = "/api/tts";
 
 const ATTACHED_SNAPSHOT_SINGLE_LABEL =
-  "[ATTACHED SNAPSHOT: A screenshot the user captured. If the user's message is asking about this snapshot, what they captured, or what is in the screenshot, analyze it fully and answer in detail.]";
+  "[ATTACHED SNAPSHOT: A screenshot the user captured.]";
 
 const LIVE_PREVIEW_LABEL =
-  "[LIVE PREVIEW: A real-time capture of the user's current screen. If the user's message is asking about the live preview, what is on their screen, or what you can see, analyze this image fully and describe it in detail.]";
+  "[LIVE PREVIEW: A real-time capture of the user's current screen.]";
 
 // Desktop can call Groq directly. Web deploys can fall back to /api Netlify functions.
 const groq = API_KEY
@@ -41,8 +41,18 @@ export async function streamGroqChatCompletion(
   liveFrameUrl: string | null = null,
   snapshotUrls: string[] = [],
   history: HistoryMessage[] = [],
+  concise: boolean = false,
 ): Promise<string> {
   const messages: ChatCompletionMessageParam[] = [
+    ...(concise
+      ? [
+          {
+            role: "system" as const,
+            content:
+              "You are in a voice call. Keep every reply short and conversational—ideally 1-3 sentences. Avoid markdown, bullet lists, and code blocks unless the user explicitly asks for them.",
+          },
+        ]
+      : []),
     ...buildHistoryMessages(history),
     {
       role: "user",
@@ -100,8 +110,7 @@ function buildSnapshotLabel(index: number, total: number): string {
     "[ATTACHED SNAPSHOT " +
     String(index + 1) +
     " of " +
-    String(total) +
-    ": If the user's message is asking about the snapshot(s), what they captured, or what is in the screenshot(s), analyze all of them fully and answer in detail.]"
+    String(total)
   );
 }
 
