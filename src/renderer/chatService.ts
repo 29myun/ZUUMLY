@@ -15,10 +15,15 @@ import {
 import { db } from "./firebase";
 import Groq from "groq-sdk";
 
-const groq = new Groq({
-  apiKey: import.meta.env.VITE_GROQ_API_KEY,
-  dangerouslyAllowBrowser: true,
-});
+const isElectron =
+  typeof window !== "undefined" && !!(window as any).screenAssist;
+
+const groq = isElectron
+  ? new Groq({
+      apiKey: import.meta.env.VITE_GROQ_API_KEY,
+      dangerouslyAllowBrowser: true,
+    })
+  : null;
 
 export type ChatMessage = { role: "user" | "assistant"; text: string };
 
@@ -64,22 +69,40 @@ export async function createChat(uid: string): Promise<string> {
 
 /** Generate a short title by asking Groq to summarize the first exchange. */
 async function generateTitle(userMsg: string, assistantMsg: string): Promise<string> {
+  const titleMessages = [
+    {
+      role: "system" as const,
+      content: "Summarize the following conversation into a short title (max 6 words). Reply with only the title, no quotes or punctuation at the end.",
+    },
+    {
+      role: "user" as const,
+      content: `User: ${userMsg}\nAssistant: ${assistantMsg}`,
+    },
+  ];
+
   try {
-    const response = await groq.chat.completions.create({
-      messages: [
-        {
-          role: "system",
-          content: "Summarize the following conversation into a short title (max 6 words). Reply with only the title, no quotes or punctuation at the end.",
-        },
-        {
-          role: "user",
-          content: `User: ${userMsg}\nAssistant: ${assistantMsg}`,
-        },
-      ],
-      model: "meta-llama/llama-4-scout-17b-16e-instruct",
-      stream: false,
+    if (groq) {
+      const response = await groq.chat.completions.create({
+        messages: titleMessages,
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        stream: false,
+      });
+      const title = response.choices[0]?.message?.content?.trim();
+      return title || "New Chat";
+    }
+
+    const res = await fetch("/api/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        messages: titleMessages,
+        model: "meta-llama/llama-4-scout-17b-16e-instruct",
+        stream: false,
+      }),
     });
-    const title = response.choices[0]?.message?.content?.trim();
+    if (!res.ok) throw new Error(`Title request failed: ${res.status}`);
+    const data = await res.json();
+    const title = data.choices[0]?.message?.content?.trim();
     return title || "New Chat";
   } catch {
     return userMsg.slice(0, 40) + (userMsg.length > 40 ? "…" : "");

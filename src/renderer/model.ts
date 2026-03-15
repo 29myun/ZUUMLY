@@ -1,10 +1,15 @@
 import Groq from "groq-sdk";
 import type { ChatCompletionContentPart } from "groq-sdk/resources/chat/completions";
 
-const groq = new Groq({
-  apiKey: (import.meta as any).env.VITE_GROQ_API_KEY,
-  dangerouslyAllowBrowser: true,
-});
+const isElectron =
+  typeof window !== "undefined" && !!(window as any).screenAssist;
+
+const groq = isElectron
+  ? new Groq({
+      apiKey: (import.meta as any).env.VITE_GROQ_API_KEY,
+      dangerouslyAllowBrowser: true,
+    })
+  : null;
 
 export async function streamGroqChatCompletion(
   userMessage: string,
@@ -48,18 +53,57 @@ export async function streamGroqChatCompletion(
   content.push({ type: "text", text: userMessage });
   messages.push({ role: "user", content });
 
-  const stream = await groq.chat.completions.create({
-    messages,
-    model: "meta-llama/llama-4-scout-17b-16e-instruct",
-    stream: true,
-  });
+  if (groq) {
+    // Electron — call Groq SDK directly
+    const stream = await groq.chat.completions.create({
+      messages,
+      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+      stream: true,
+    });
 
+    let full = "";
+    for await (const chunk of stream) {
+      const delta = chunk.choices[0]?.delta?.content;
+      if (delta) {
+        full += delta;
+        onToken(full);
+      }
+    }
+    return full;
+  }
+
+  // Web — stream via serverless function
+  const res = await fetch("/api/chat", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({
+      messages,
+      model: "meta-llama/llama-4-scout-17b-16e-instruct",
+      stream: true,
+    }),
+  });
+  if (!res.ok) throw new Error(`Chat request failed: ${res.status}`);
+
+  const reader = res.body!.getReader();
+  const decoder = new TextDecoder();
   let full = "";
-  for await (const chunk of stream) {
-    const delta = chunk.choices[0]?.delta?.content;
-    if (delta) {
-      full += delta;
-      onToken(full);
+  let buffer = "";
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split("\n");
+    buffer = lines.pop()!;
+    for (const line of lines) {
+      if (line.startsWith("data: ") && line !== "data: [DONE]") {
+        try {
+          const data = JSON.parse(line.slice(6));
+          if (data.content) {
+            full += data.content;
+            onToken(full);
+          }
+        } catch {}
+      }
     }
   }
   return full;
@@ -69,13 +113,22 @@ export async function streamGroqChatCompletion(
  * Transcribe audio using Groq Whisper.
  */
 export async function transcribeAudio(audioBlob: Blob): Promise<string> {
-  const file = new File([audioBlob], "recording.webm", { type: audioBlob.type });
-  const transcription = await groq.audio.transcriptions.create({
-    file,
-    model: "whisper-large-v3",
-    language: "en",
-  });
-  return transcription.text;
+  if (groq) {
+    const file = new File([audioBlob], "recording.webm", { type: audioBlob.type });
+    const transcription = await groq.audio.transcriptions.create({
+      file,
+      model: "whisper-large-v3",
+      language: "en",
+    });
+    return transcription.text;
+  }
+
+  const formData = new FormData();
+  formData.append("file", audioBlob, "recording.webm");
+  const res = await fetch("/api/transcribe", { method: "POST", body: formData });
+  if (!res.ok) throw new Error(`Transcribe request failed: ${res.status}`);
+  const data = await res.json();
+  return data.text;
 }
 
 /**
@@ -83,11 +136,22 @@ export async function transcribeAudio(audioBlob: Blob): Promise<string> {
  */
 export async function textToSpeech(text: string): Promise<Blob> {
   if (!text.trim()) throw new Error("Empty text for TTS");
-  const response = await groq.audio.speech.create({
-    model: "playai-tts",
-    input: text,
-    voice: "Fritz-PlayAI",
-    response_format: "mp3",
+
+  if (groq) {
+    const response = await groq.audio.speech.create({
+      model: "playai-tts",
+      input: text,
+      voice: "Fritz-PlayAI",
+      response_format: "mp3",
+    });
+    return await response.blob();
+  }
+
+  const res = await fetch("/api/tts", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ text, voice: "Fritz-PlayAI" }),
   });
-  return await response.blob();
+  if (!res.ok) throw new Error(`TTS request failed: ${res.status}`);
+  return await res.blob();
 }
