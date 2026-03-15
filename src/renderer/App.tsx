@@ -73,6 +73,16 @@ function addScreenContext(
   return frame ? message : `${fallbackContext}\n\n${message}`;
 }
 
+function isRenderableChatMessage(
+  message: ChatMessage | null | undefined,
+): message is ChatMessage {
+  return Boolean(
+    message &&
+      (message.role === "user" || message.role === "assistant") &&
+      typeof message.text === "string",
+  );
+}
+
 export default function App() {
   // Routing/auth/theme state.
   const [page, setPage] = useState<Page>("landing");
@@ -678,6 +688,7 @@ export default function App() {
           frame,
           attachedSnapshots,
           chatLog,
+          true,
         );
 
         if (callLinkedToChat && chatId) {
@@ -907,9 +918,6 @@ export default function App() {
           />
           <span>Link to chat</span>
         </label>
-        <button className="danger small" onClick={endCall}>
-          End Call
-        </button>
       </div>
     );
   };
@@ -971,14 +979,25 @@ export default function App() {
   );
 
   const renderChatPanel = () => (
-    <section className="panel chat-panel">
-      <h2>Chat</h2>
+    <section className={`panel chat-panel${!user ? " chat-panel-medium" : ""}`}>
+      <div className="panel-header">
+        <h2>Chat</h2>
+        {!user && chatLog.length > 0 && (
+          <button
+            className="danger small"
+            style={{ marginLeft: "auto" }}
+            onClick={() => setChatLog([])}
+          >
+            Clear Chat
+          </button>
+        )}
+      </div>
       <div className="chat-log">
-        {chatLog.length === 0 && (
+        {chatLog.filter(isRenderableChatMessage).length === 0 && (
           <p className="muted" style={{ textAlign: "center", padding: 16 }}>
           </p>
         )}
-        {chatLog.map((message, index) => (
+        {chatLog.filter(isRenderableChatMessage).map((message, index) => (
           <div key={index} className={`chat-bubble ${message.role}`}>
             <span className="chat-role">
               {message.role === "user" ? "You" : MODEL_LABEL}
@@ -1038,16 +1057,6 @@ export default function App() {
         </button>
       </div>
 
-      <button
-        className={callActive ? "danger small" : "ghost small"}
-        style={{ alignSelf: "center", marginTop: 4 }}
-        onClick={callActive ? endCall : () => void startCall()}
-        disabled={aiLoading}
-      >
-        {callActive ? "End Call" : "🎙️ Call"}
-      </button>
-
-      {renderVoiceCallOverlay()}
     </section>
   );
 
@@ -1134,6 +1143,14 @@ export default function App() {
         </div>
 
         <div className="panel-footer">
+          <button
+            className={callActive ? "danger small" : "ghost small"}
+            style={{ marginLeft: 8 }}
+            onClick={callActive ? endCall : () => void startCall()}
+            disabled={aiLoading}
+          >
+            {callActive ? "End Call" : "🎙️ Call"}
+          </button>
           <select
             className="scale-select"
             value={previewScale}
@@ -1142,6 +1159,8 @@ export default function App() {
             {renderScaleOptions()}
           </select>
         </div>
+
+        {renderVoiceCallOverlay()}
       </section>
     );
   };
@@ -1247,7 +1266,7 @@ export default function App() {
               Choose source
             </button>
           </section>
-          {renderChatListPanel()}
+          {user && renderChatListPanel()}
           {renderChatPanel()}
         </aside>
 

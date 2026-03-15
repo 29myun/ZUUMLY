@@ -35,6 +35,26 @@ export type Chat = {
 
 const chatsRef = collection(db, "chats");
 
+function isChatMessage(value: unknown): value is ChatMessage {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const role = (value as { role?: unknown }).role;
+  const text = (value as { text?: unknown }).text;
+  return (role === "user" || role === "assistant") && typeof text === "string";
+}
+
+function sanitizeChatMessages(messages: unknown): ChatMessage[] {
+  if (!Array.isArray(messages)) {
+    return [];
+  }
+
+  return messages
+    .filter(isChatMessage)
+    .map((message) => ({ role: message.role, text: message.text }));
+}
+
 /** Subscribe to a user's chats and receive updates in real time. */
 export function subscribeToChats(
   uid: string,
@@ -48,7 +68,7 @@ export function subscribeToChats(
         id: d.id,
         title: data.title ?? "New Chat",
         createdAt: data.createdAt?.toMillis?.() ?? Date.now(),
-        messages: data.messages ?? [],
+        messages: sanitizeChatMessages(data.messages),
       };
     });
     callback(chats);
@@ -114,13 +134,16 @@ export async function saveMessages(
   messages: ChatMessage[],
   currentTitle?: string,
 ): Promise<void> {
-  const firstUser = messages.find((m) => m.role === "user");
-  const firstAssistant = messages.find((m) => m.role === "assistant" && m.text.trim());
+  const sanitizedMessages = sanitizeChatMessages(messages);
+  const firstUser = sanitizedMessages.find((m) => m.role === "user");
+  const firstAssistant = sanitizedMessages.find(
+    (m) => m.role === "assistant" && m.text.trim(),
+  );
 
   // Only replace titles that still have the placeholder label.
   const needsTitle = !currentTitle || currentTitle === "New Chat";
 
-  const update: Record<string, unknown> = { messages };
+  const update: Record<string, unknown> = { messages: sanitizedMessages };
 
   if (needsTitle && firstUser && firstAssistant) {
     update.title = await generateTitle(firstUser.text, firstAssistant.text);
