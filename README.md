@@ -1,6 +1,6 @@
 # ZUUMLY Screen Assist
 
-Screen Assist is a desktop-first AI helper built for BCIT Hackathon 2026.
+ZUUMLY is a web application based around a screen assist AI built for BCIT Hackathon 2026.
 It combines Electron, React, Firebase, and Groq to let users share their screen,
 capture snapshots, and ask context-aware questions in chat or voice mode.
 
